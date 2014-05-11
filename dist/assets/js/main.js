@@ -141,12 +141,15 @@ function setup3d() {
 	scene = new THREE.Scene();
 	camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
 	renderer = new THREE.WebGLRenderer();
+	renderer.shadowMapEnabled = true;
 
 	renderer.setSize( window.innerWidth, window.innerHeight );
+	renderer.setClearColor('#FFFFFF');
 
 	document.body.appendChild( renderer.domElement );
 
 	var hemilight = new THREE.HemisphereLight('#FFFFFF', '#000000', 0.8);
+	hemilight.castShadow = true;
 	scene.add(hemilight);
 
 	var spotlight = new THREE.SpotLight( 0xffffff );
@@ -169,7 +172,7 @@ function setup3d() {
 /* 	scene.add( cube ); */
 
 /* 	var material = new THREE.MeshLambertMaterial( { color: 'gray' } ); */
-	var material = new THREE.MeshPhongMaterial( { color: 'gray' } );
+	var material = new THREE.MeshPhongMaterial( { color: 0xff0000 } );
 
 	var loader = new THREE.STLLoader();
 	loader.addEventListener( 'load', function ( event ) {
@@ -183,8 +186,8 @@ function setup3d() {
 		mesh.scale.set( 2, 2, 2 );
 */
 
-		mesh.castShadow = false;
-		mesh.receiveShadow = false;
+		mesh.castShadow = true;
+		mesh.receiveShadow = true;
 
 		console.log(mesh);
 
@@ -194,11 +197,6 @@ function setup3d() {
 
 	} );
 	loader.load( 'dist/assets/stl/girder-cube.stl' );
-
-	var geometry2 = new THREE.CubeGeometry( 2, 2, 2 );
-	var material2 = new THREE.MeshBasicMaterial( { color: 0xffff00 } );
-	mesh2 = new THREE.Mesh( geometry2, material );
-	scene.add( mesh2 );
 
 /*
 	var fog = new THREE.FogExp2('white', 0.113);
@@ -236,13 +234,6 @@ function render() {
 
 				mesh.rotation.x += 0.01;
 				mesh.rotation.y += 0.01;
-
-			}
-
-			if (mesh2) {
-
-				mesh2.rotation.x += 0.005;
-				mesh2.rotation.y += 0.005;
 
 			}
 
