@@ -38490,501 +38490,642 @@ THREE.ShaderFlares = {
 };
 
 /**
- * @author aleeper / http://adamleeper.com/
- * @author mrdoob / http://mrdoob.com/
- * @author gero3 / https://github.com/gero3
- *
- * Description: A THREE loader for STL ASCII files, as created by Solidworks and other CAD programs.
- *
- * Supports both binary and ASCII encoded files, with automatic detection of type.
- *
- * Limitations:
- * 	Binary decoding ignores header. There doesn't seem to be much of a use for it.
- * 	There is perhaps some question as to how valid it is to always assume little-endian-ness.
- * 	ASCII decoding assumes file is UTF-8. Seems to work for the examples...
- *
- * Usage:
- * 	var loader = new THREE.STLLoader();
- * 	loader.addEventListener( 'load', function ( event ) {
- *
- * 		var geometry = event.content;
- * 		scene.add( new THREE.Mesh( geometry ) );
- *
- * 	} );
- * 	loader.load( './models/stl/slotted_disk.stl' );
+ * @author qiao / https://github.com/qiao
+ * @author mrdoob / http://mrdoob.com
+ * @author alteredq / http://alteredqualia.com/
+ * @author WestLangley / http://github.com/WestLangley
+ * @author erich666 / http://erichaines.com
  */
+/*global THREE, console */
 
+// This set of controls performs orbiting, dollying (zooming), and panning. It maintains
+// the "up" direction as +Y, unlike the TrackballControls. Touch on tablet and phones is
+// supported.
+//
+//    Orbit - left mouse / touch: one finger move
+//    Zoom - middle mouse, or mousewheel / touch: two finger spread or squish
+//    Pan - right mouse, or arrow keys / touch: three finter swipe
+//
+// This is a drop-in replacement for (most) TrackballControls used in examples.
+// That is, include this js file and wherever you see:
+//    	controls = new THREE.TrackballControls( camera );
+//      controls.target.z = 150;
+// Simple substitute "OrbitControls" and the control should work as-is.
 
-THREE.STLLoader = function () {};
+THREE.OrbitControls = function ( object, domElement ) {
 
-THREE.STLLoader.prototype = {
+	this.object = object;
+	this.domElement = ( domElement !== undefined ) ? domElement : document;
 
-	constructor: THREE.STLLoader
+	// API
 
-};
+	// Set to false to disable this control
+	this.enabled = true;
 
-THREE.STLLoader.prototype.load = function ( url, callback ) {
+	// "target" sets the location of focus, where the control orbits around
+	// and where it pans with respect to.
+	this.target = new THREE.Vector3();
+
+	// center is old, deprecated; use "target" instead
+	this.center = this.target;
+
+	// This option actually enables dollying in and out; left as "zoom" for
+	// backwards compatibility
+	this.noZoom = false;
+	this.zoomSpeed = 1.0;
+
+	// Limits to how far you can dolly in and out
+	this.minDistance = 0;
+	this.maxDistance = Infinity;
+
+	// Set to true to disable this control
+	this.noRotate = false;
+	this.rotateSpeed = 1.0;
+
+	// Set to true to disable this control
+	this.noPan = false;
+	this.keyPanSpeed = 7.0;	// pixels moved per arrow key push
+
+	// Set to true to automatically rotate around the target
+	this.autoRotate = false;
+	this.autoRotateSpeed = 2.0; // 30 seconds per round when fps is 60
+
+	// How far you can orbit vertically, upper and lower limits.
+	// Range is 0 to Math.PI radians.
+	this.minPolarAngle = 0; // radians
+	this.maxPolarAngle = Math.PI; // radians
+
+	// Set to true to disable use of the keys
+	this.noKeys = false;
+
+	// The four arrow keys
+	this.keys = { LEFT: 37, UP: 38, RIGHT: 39, BOTTOM: 40 };
+
+	////////////
+	// internals
 
 	var scope = this;
 
-	var xhr = new XMLHttpRequest();
+	var EPS = 0.000001;
 
-	function onloaded( event ) {
+	var rotateStart = new THREE.Vector2();
+	var rotateEnd = new THREE.Vector2();
+	var rotateDelta = new THREE.Vector2();
 
-		if ( event.target.status === 200 || event.target.status === 0 ) {
+	var panStart = new THREE.Vector2();
+	var panEnd = new THREE.Vector2();
+	var panDelta = new THREE.Vector2();
+	var panOffset = new THREE.Vector3();
 
-			var geometry = scope.parse( event.target.response || event.target.responseText );
+	var offset = new THREE.Vector3();
 
-			scope.dispatchEvent( { type: 'load', content: geometry } );
+	var dollyStart = new THREE.Vector2();
+	var dollyEnd = new THREE.Vector2();
+	var dollyDelta = new THREE.Vector2();
 
-			if ( callback ) callback( geometry );
+	var phiDelta = 0;
+	var thetaDelta = 0;
+	var scale = 1;
+	var pan = new THREE.Vector3();
+
+	var lastPosition = new THREE.Vector3();
+
+	var STATE = { NONE : -1, ROTATE : 0, DOLLY : 1, PAN : 2, TOUCH_ROTATE : 3, TOUCH_DOLLY : 4, TOUCH_PAN : 5 };
+
+	var state = STATE.NONE;
+
+	// for reset
+
+	this.target0 = this.target.clone();
+	this.position0 = this.object.position.clone();
+
+	// so camera.up is the orbit axis
+
+	var quat = new THREE.Quaternion().setFromUnitVectors( object.up, new THREE.Vector3( 0, 1, 0 ) );
+	var quatInverse = quat.clone().inverse();
+
+	// events
+
+	var changeEvent = { type: 'change' };
+	var startEvent = { type: 'start'};
+	var endEvent = { type: 'end'};
+
+	this.rotateLeft = function ( angle ) {
+
+		if ( angle === undefined ) {
+
+			angle = getAutoRotationAngle();
+
+		}
+
+		thetaDelta -= angle;
+
+	};
+
+	this.rotateUp = function ( angle ) {
+
+		if ( angle === undefined ) {
+
+			angle = getAutoRotationAngle();
+
+		}
+
+		phiDelta -= angle;
+
+	};
+
+	// pass in distance in world space to move left
+	this.panLeft = function ( distance ) {
+
+		var te = this.object.matrix.elements;
+
+		// get X column of matrix
+		panOffset.set( te[ 0 ], te[ 1 ], te[ 2 ] );
+		panOffset.multiplyScalar( - distance );
+
+		pan.add( panOffset );
+
+	};
+
+	// pass in distance in world space to move up
+	this.panUp = function ( distance ) {
+
+		var te = this.object.matrix.elements;
+
+		// get Y column of matrix
+		panOffset.set( te[ 4 ], te[ 5 ], te[ 6 ] );
+		panOffset.multiplyScalar( distance );
+
+		pan.add( panOffset );
+
+	};
+
+	// pass in x,y of change desired in pixel space,
+	// right and down are positive
+	this.pan = function ( deltaX, deltaY ) {
+
+		var element = scope.domElement === document ? scope.domElement.body : scope.domElement;
+
+		if ( scope.object.fov !== undefined ) {
+
+			// perspective
+			var position = scope.object.position;
+			var offset = position.clone().sub( scope.target );
+			var targetDistance = offset.length();
+
+			// half of the fov is center to top of screen
+			targetDistance *= Math.tan( ( scope.object.fov / 2 ) * Math.PI / 180.0 );
+
+			// we actually don't use screenWidth, since perspective camera is fixed to screen height
+			scope.panLeft( 2 * deltaX * targetDistance / element.clientHeight );
+			scope.panUp( 2 * deltaY * targetDistance / element.clientHeight );
+
+		} else if ( scope.object.top !== undefined ) {
+
+			// orthographic
+			scope.panLeft( deltaX * (scope.object.right - scope.object.left) / element.clientWidth );
+			scope.panUp( deltaY * (scope.object.top - scope.object.bottom) / element.clientHeight );
 
 		} else {
 
-			scope.dispatchEvent( { type: 'error', message: 'Couldn\'t load URL [' + url + ']', response: event.target.responseText } );
-
-		}
-
-	}
-
-	xhr.addEventListener( 'load', onloaded, false );
-
-	xhr.addEventListener( 'progress', function ( event ) {
-
-		scope.dispatchEvent( { type: 'progress', loaded: event.loaded, total: event.total } );
-
-	}, false );
-
-	xhr.addEventListener( 'error', function () {
-
-		scope.dispatchEvent( { type: 'error', message: 'Couldn\'t load URL [' + url + ']' } );
-
-	}, false );
-
-	if ( xhr.overrideMimeType ) xhr.overrideMimeType( 'text/plain; charset=x-user-defined' );
-	xhr.open( 'GET', url, true );
-	xhr.responseType = 'arraybuffer';
-	xhr.send( null );
-
-};
-
-THREE.STLLoader.prototype.parse = function ( data ) {
-
-
-	var isBinary = function () {
-
-		var expect, face_size, n_faces, reader;
-		reader = new DataView( binData );
-		face_size = (32 / 8 * 3) + ((32 / 8 * 3) * 3) + (16 / 8);
-		n_faces = reader.getUint32(80,true);
-		expect = 80 + (32 / 8) + (n_faces * face_size);
-		return expect === reader.byteLength;
-
-	};
-
-	var binData = this.ensureBinary( data );
-
-	return isBinary()
-		? this.parseBinary( binData )
-		: this.parseASCII( this.ensureString( data ) );
-
-};
-
-THREE.STLLoader.prototype.parseBinary = function ( data ) {
-
-	var reader = new DataView( data );
-	var faces = reader.getUint32( 80, true );
-	var dataOffset = 84;
-	var faceLength = 12 * 4 + 2;
-
-	var offset = 0;
-
-	var geometry = new THREE.TypedGeometry( faces );
-
-	for ( var face = 0; face < faces; face ++ ) {
-
-		var start = dataOffset + face * faceLength;
-
-		for ( var i = 1; i <= 3; i ++ ) {
-
-			var vertexstart = start + i * 12;
-
-			geometry.vertices[ offset     ] = reader.getFloat32( vertexstart, true );
-			geometry.vertices[ offset + 1 ] = reader.getFloat32( vertexstart + 4, true );
-			geometry.vertices[ offset + 2 ] = reader.getFloat32( vertexstart + 8, true );
-
-			geometry.normals[ offset     ] = reader.getFloat32( start    , true );
-			geometry.normals[ offset + 1 ] = reader.getFloat32( start + 4, true );
-			geometry.normals[ offset + 2 ] = reader.getFloat32( start + 8, true );
-
-			offset += 3;
-
-		}
-
-	}
-
-	return geometry;
-
-};
-
-THREE.STLLoader.prototype.parseASCII = function (data) {
-
-	var geometry, length, normal, patternFace, patternNormal, patternVertex, result, text;
-	geometry = new THREE.Geometry();
-	patternFace = /facet([\s\S]*?)endfacet/g;
-
-	while ( ( result = patternFace.exec( data ) ) !== null ) {
-
-		text = result[0];
-		patternNormal = /normal[\s]+([\-+]?[0-9]+\.?[0-9]*([eE][\-+]?[0-9]+)?)+[\s]+([\-+]?[0-9]*\.?[0-9]+([eE][\-+]?[0-9]+)?)+[\s]+([\-+]?[0-9]*\.?[0-9]+([eE][\-+]?[0-9]+)?)+/g;
-
-		while ( ( result = patternNormal.exec( text ) ) !== null ) {
-
-			normal = new THREE.Vector3( parseFloat( result[ 1 ] ), parseFloat( result[ 3 ] ), parseFloat( result[ 5 ] ) );
-
-		}
-
-		patternVertex = /vertex[\s]+([\-+]?[0-9]+\.?[0-9]*([eE][\-+]?[0-9]+)?)+[\s]+([\-+]?[0-9]*\.?[0-9]+([eE][\-+]?[0-9]+)?)+[\s]+([\-+]?[0-9]*\.?[0-9]+([eE][\-+]?[0-9]+)?)+/g;
-
-		while ( ( result = patternVertex.exec( text ) ) !== null ) {
-
-			geometry.vertices.push( new THREE.Vector3( parseFloat( result[ 1 ] ), parseFloat( result[ 3 ] ), parseFloat( result[ 5 ] ) ) );
-
-		}
-
-		length = geometry.vertices.length;
-
-		geometry.faces.push( new THREE.Face3( length - 3, length - 2, length - 1, normal ) );
-
-	}
-
-	geometry.computeBoundingBox();
-	geometry.computeBoundingSphere();
-
-	return geometry;
-
-};
-
-THREE.STLLoader.prototype.ensureString = function (buf) {
-
-	if (typeof buf !== "string"){
-		var array_buffer = new Uint8Array(buf);
-		var str = '';
-		for(var i = 0; i < buf.byteLength; i++) {
-			str += String.fromCharCode(array_buffer[i]); // implicitly assumes little-endian
-		}
-		return str;
-	} else {
-		return buf;
-	}
-
-};
-
-THREE.STLLoader.prototype.ensureBinary = function (buf) {
-
-	if (typeof buf === "string"){
-		var array_buffer = new Uint8Array(buf.length);
-		for(var i = 0; i < buf.length; i++) {
-			array_buffer[i] = buf.charCodeAt(i) & 0xff; // implicitly assumes little-endian
-		}
-		return array_buffer.buffer || array_buffer;
-	} else {
-		return buf;
-	}
-
-};
-
-THREE.EventDispatcher.prototype.apply( THREE.STLLoader.prototype );
-
-if ( typeof DataView === 'undefined'){
-
-	DataView = function(buffer, byteOffset, byteLength){
-
-		this.buffer = buffer;
-		this.byteOffset = byteOffset || 0;
-		this.byteLength = byteLength || buffer.byteLength || buffer.length;
-		this._isString = typeof buffer === "string";
-
-	}
-
-	DataView.prototype = {
-
-		_getCharCodes:function(buffer,start,length){
-			start = start || 0;
-			length = length || buffer.length;
-			var end = start + length;
-			var codes = [];
-			for (var i = start; i < end; i++) {
-				codes.push(buffer.charCodeAt(i) & 0xff);
-			}
-			return codes;
-		},
-
-		_getBytes: function (length, byteOffset, littleEndian) {
-
-			var result;
-
-			// Handle the lack of endianness
-			if (littleEndian === undefined) {
-
-				littleEndian = this._littleEndian;
-
-			}
-
-			// Handle the lack of byteOffset
-			if (byteOffset === undefined) {
-
-				byteOffset = this.byteOffset;
-
-			} else {
-
-				byteOffset = this.byteOffset + byteOffset;
-
-			}
-
-			if (length === undefined) {
-
-				length = this.byteLength - byteOffset;
-
-			}
-
-			// Error Checking
-			if (typeof byteOffset !== 'number') {
-
-				throw new TypeError('DataView byteOffset is not a number');
-
-			}
-
-			if (length < 0 || byteOffset + length > this.byteLength) {
-
-				throw new Error('DataView length or (byteOffset+length) value is out of bounds');
-
-			}
-
-			if (this.isString){
-
-				result = this._getCharCodes(this.buffer, byteOffset, byteOffset + length);
-
-			} else {
-
-				result = this.buffer.slice(byteOffset, byteOffset + length);
-
-			}
-
-			if (!littleEndian && length > 1) {
-
-				if (!(result instanceof Array)) {
-
-					result = Array.prototype.slice.call(result);
-
-				}
-
-				result.reverse();
-			}
-
-			return result;
-
-		},
-
-		// Compatibility functions on a String Buffer
-
-		getFloat64: function (byteOffset, littleEndian) {
-
-			var b = this._getBytes(8, byteOffset, littleEndian),
-
-				sign = 1 - (2 * (b[7] >> 7)),
-				exponent = ((((b[7] << 1) & 0xff) << 3) | (b[6] >> 4)) - ((1 << 10) - 1),
-
-			// Binary operators such as | and << operate on 32 bit values, using + and Math.pow(2) instead
-				mantissa = ((b[6] & 0x0f) * Math.pow(2, 48)) + (b[5] * Math.pow(2, 40)) + (b[4] * Math.pow(2, 32)) +
-							(b[3] * Math.pow(2, 24)) + (b[2] * Math.pow(2, 16)) + (b[1] * Math.pow(2, 8)) + b[0];
-
-			if (exponent === 1024) {
-				if (mantissa !== 0) {
-					return NaN;
-				} else {
-					return sign * Infinity;
-				}
-			}
-
-			if (exponent === -1023) { // Denormalized
-				return sign * mantissa * Math.pow(2, -1022 - 52);
-			}
-
-			return sign * (1 + mantissa * Math.pow(2, -52)) * Math.pow(2, exponent);
-
-		},
-
-		getFloat32: function (byteOffset, littleEndian) {
-
-			var b = this._getBytes(4, byteOffset, littleEndian),
-
-				sign = 1 - (2 * (b[3] >> 7)),
-				exponent = (((b[3] << 1) & 0xff) | (b[2] >> 7)) - 127,
-				mantissa = ((b[2] & 0x7f) << 16) | (b[1] << 8) | b[0];
-
-			if (exponent === 128) {
-				if (mantissa !== 0) {
-					return NaN;
-				} else {
-					return sign * Infinity;
-				}
-			}
-
-			if (exponent === -127) { // Denormalized
-				return sign * mantissa * Math.pow(2, -126 - 23);
-			}
-
-			return sign * (1 + mantissa * Math.pow(2, -23)) * Math.pow(2, exponent);
-		},
-
-		getInt32: function (byteOffset, littleEndian) {
-			var b = this._getBytes(4, byteOffset, littleEndian);
-			return (b[3] << 24) | (b[2] << 16) | (b[1] << 8) | b[0];
-		},
-
-		getUint32: function (byteOffset, littleEndian) {
-			return this.getInt32(byteOffset, littleEndian) >>> 0;
-		},
-
-		getInt16: function (byteOffset, littleEndian) {
-			return (this.getUint16(byteOffset, littleEndian) << 16) >> 16;
-		},
-
-		getUint16: function (byteOffset, littleEndian) {
-			var b = this._getBytes(2, byteOffset, littleEndian);
-			return (b[1] << 8) | b[0];
-		},
-
-		getInt8: function (byteOffset) {
-			return (this.getUint8(byteOffset) << 24) >> 24;
-		},
-
-		getUint8: function (byteOffset) {
-			return this._getBytes(1, byteOffset)[0];
-		}
-
-	 };
-
-}
-/**
- * @author mrdoob / http://mrdoob.com/
- */
-
-THREE.TypedGeometry = function ( size ) {
-
-	THREE.BufferGeometry.call( this );
-
-	if ( size !== undefined ) {
-
-		this.vertices = new Float32Array( size * 3 * 3 );
-		this.normals = new Float32Array( size * 3 * 3 );
-		this.uvs = new Float32Array( size * 3 * 2 );
-
-		this.attributes[ 'position' ] = { array: this.vertices, itemSize: 3 };
-		this.attributes[ 'normal' ] = { array: this.normals, itemSize: 3 };
-		this.attributes[ 'uv' ] = { array: this.uvs, itemSize: 2 };
-
-	}
-
-};
-
-THREE.TypedGeometry.prototype = Object.create( THREE.BufferGeometry.prototype );
-
-THREE.TypedGeometry.prototype.setArrays = function ( vertices, normals, uvs ) {
-
-	this.vertices = vertices;
-	this.normals = normals;
-	this.uvs = uvs;
-
-	this.attributes[ 'position' ] = { array: vertices, itemSize: 3 };
-	this.attributes[ 'normal' ] = { array: normals, itemSize: 3 };
-	this.attributes[ 'uv' ] = { array: uvs, itemSize: 2 };
-
-	return this;
-
-};
-
-THREE.TypedGeometry.prototype.merge = ( function () {
-
-	var offset = 0;
-	var normalMatrix = new THREE.Matrix3();
-
-	return function ( geometry, matrix, startOffset ) {
-
-		if ( startOffset !== undefined ) offset = startOffset;
-
-		var offset2 = offset * 2;
-		var offset3 = offset * 3;
-
-		var vertices = this.attributes[ 'position' ].array;
-		var normals = this.attributes[ 'normal' ].array;
-		var uvs = this.attributes[ 'uv' ].array;
-
-		if ( geometry instanceof THREE.TypedGeometry ) {
-
-			var vertices2 = geometry.attributes[ 'position' ].array;
-			var normals2 = geometry.attributes[ 'normal' ].array;
-			var uvs2 = geometry.attributes[ 'uv' ].array;
-
-			for ( var i = 0, l = vertices2.length; i < l; i += 3 ) {
-
-				vertices[ i + offset3     ] = vertices2[ i     ];
-				vertices[ i + offset3 + 1 ] = vertices2[ i + 1 ];
-				vertices[ i + offset3 + 2 ] = vertices2[ i + 2 ];
-
-				normals[ i + offset3     ] = normals2[ i     ];
-				normals[ i + offset3 + 1 ] = normals2[ i + 1 ];
-				normals[ i + offset3 + 2 ] = normals2[ i + 2 ];
-
-				uvs[ i + offset2     ] = uvs2[ i     ];
-				uvs[ i + offset2 + 1 ] = uvs2[ i + 1 ];
-
-			}
-
-		} else if ( geometry instanceof THREE.IndexedTypedGeometry ) {
-
-			var indices2 = geometry.attributes[ 'index' ].array;
-			var vertices2 = geometry.attributes[ 'position' ].array;
-			var normals2 = geometry.attributes[ 'normal' ].array;
-			var uvs2 = geometry.attributes[ 'uv' ].array;
-
-			for ( var i = 0, l = indices2.length; i < l; i ++ ) {
-
-				var index = indices2[ i ];
-
-				var index3 = index * 3;
-				var i3 = i * 3;
-
-				vertices[ i3 + offset3 ] = vertices2[ index3 ];
-				vertices[ i3 + offset3 + 1 ] = vertices2[ index3 + 1 ];
-				vertices[ i3 + offset3 + 2 ] = vertices2[ index3 + 2 ];
-
-				normals[ i3 + offset3 ] = normals2[ index3 ];
-				normals[ i3 + offset3 + 1 ] = normals2[ index3 + 1 ];
-				normals[ i3 + offset3 + 2 ] = normals2[ index3 + 2 ];
-
-				var index2 = index * 2;
-				var i2 = i * 2;
-
-				uvs[ i2 + offset2 ] = uvs2[ index2 ];
-				uvs[ i2 + offset2 + 1 ] = uvs2[ index2 + 1 ];
-
-			}
-
-			if ( matrix !== undefined ) {
-
-				matrix.applyToVector3Array( vertices, offset3, indices2.length * 3 );
-
-				normalMatrix.getNormalMatrix( matrix );
-				normalMatrix.applyToVector3Array( normals, offset3, indices2.length * 3 );
-
-			}
-
-			offset += indices2.length;
+			// camera neither orthographic or perspective
+			console.warn( 'WARNING: OrbitControls.js encountered an unknown camera type - pan disabled.' );
 
 		}
 
 	};
 
-} )();
+	this.dollyIn = function ( dollyScale ) {
+
+		if ( dollyScale === undefined ) {
+
+			dollyScale = getZoomScale();
+
+		}
+
+		scale /= dollyScale;
+
+	};
+
+	this.dollyOut = function ( dollyScale ) {
+
+		if ( dollyScale === undefined ) {
+
+			dollyScale = getZoomScale();
+
+		}
+
+		scale *= dollyScale;
+
+	};
+
+	this.update = function () {
+
+		var position = this.object.position;
+
+		offset.copy( position ).sub( this.target );
+
+		// rotate offset to "y-axis-is-up" space
+		offset.applyQuaternion( quat );
+
+		// angle from z-axis around y-axis
+
+		var theta = Math.atan2( offset.x, offset.z );
+
+		// angle from y-axis
+
+		var phi = Math.atan2( Math.sqrt( offset.x * offset.x + offset.z * offset.z ), offset.y );
+
+		if ( this.autoRotate ) {
+
+			this.rotateLeft( getAutoRotationAngle() );
+
+		}
+
+		theta += thetaDelta;
+		phi += phiDelta;
+
+		// restrict phi to be between desired limits
+		phi = Math.max( this.minPolarAngle, Math.min( this.maxPolarAngle, phi ) );
+
+		// restrict phi to be betwee EPS and PI-EPS
+		phi = Math.max( EPS, Math.min( Math.PI - EPS, phi ) );
+
+		var radius = offset.length() * scale;
+
+		// restrict radius to be between desired limits
+		radius = Math.max( this.minDistance, Math.min( this.maxDistance, radius ) );
+
+		// move target to panned location
+		this.target.add( pan );
+
+		offset.x = radius * Math.sin( phi ) * Math.sin( theta );
+		offset.y = radius * Math.cos( phi );
+		offset.z = radius * Math.sin( phi ) * Math.cos( theta );
+
+		// rotate offset back to "camera-up-vector-is-up" space
+		offset.applyQuaternion( quatInverse );
+
+		position.copy( this.target ).add( offset );
+
+		this.object.lookAt( this.target );
+
+		thetaDelta = 0;
+		phiDelta = 0;
+		scale = 1;
+		pan.set( 0, 0, 0 );
+
+		if ( lastPosition.distanceToSquared( this.object.position ) > EPS ) {
+
+			this.dispatchEvent( changeEvent );
+
+			lastPosition.copy( this.object.position );
+
+		}
+
+	};
+
+
+	this.reset = function () {
+
+		state = STATE.NONE;
+
+		this.target.copy( this.target0 );
+		this.object.position.copy( this.position0 );
+
+		this.update();
+
+	};
+
+	function getAutoRotationAngle() {
+
+		return 2 * Math.PI / 60 / 60 * scope.autoRotateSpeed;
+
+	}
+
+	function getZoomScale() {
+
+		return Math.pow( 0.95, scope.zoomSpeed );
+
+	}
+
+	function onMouseDown( event ) {
+
+		if ( scope.enabled === false ) return;
+		event.preventDefault();
+
+		if ( event.button === 0 ) {
+			if ( scope.noRotate === true ) return;
+
+			state = STATE.ROTATE;
+
+			rotateStart.set( event.clientX, event.clientY );
+
+		} else if ( event.button === 1 ) {
+			if ( scope.noZoom === true ) return;
+
+			state = STATE.DOLLY;
+
+			dollyStart.set( event.clientX, event.clientY );
+
+		} else if ( event.button === 2 ) {
+			if ( scope.noPan === true ) return;
+
+			state = STATE.PAN;
+
+			panStart.set( event.clientX, event.clientY );
+
+		}
+
+		scope.domElement.addEventListener( 'mousemove', onMouseMove, false );
+		scope.domElement.addEventListener( 'mouseup', onMouseUp, false );
+		scope.dispatchEvent( startEvent );
+
+	}
+
+	function onMouseMove( event ) {
+
+		if ( scope.enabled === false ) return;
+
+		event.preventDefault();
+
+		var element = scope.domElement === document ? scope.domElement.body : scope.domElement;
+
+		if ( state === STATE.ROTATE ) {
+
+			if ( scope.noRotate === true ) return;
+
+			rotateEnd.set( event.clientX, event.clientY );
+			rotateDelta.subVectors( rotateEnd, rotateStart );
+
+			// rotating across whole screen goes 360 degrees around
+			scope.rotateLeft( 2 * Math.PI * rotateDelta.x / element.clientWidth * scope.rotateSpeed );
+
+			// rotating up and down along whole screen attempts to go 360, but limited to 180
+			scope.rotateUp( 2 * Math.PI * rotateDelta.y / element.clientHeight * scope.rotateSpeed );
+
+			rotateStart.copy( rotateEnd );
+
+		} else if ( state === STATE.DOLLY ) {
+
+			if ( scope.noZoom === true ) return;
+
+			dollyEnd.set( event.clientX, event.clientY );
+			dollyDelta.subVectors( dollyEnd, dollyStart );
+
+			if ( dollyDelta.y > 0 ) {
+
+				scope.dollyIn();
+
+			} else {
+
+				scope.dollyOut();
+
+			}
+
+			dollyStart.copy( dollyEnd );
+
+		} else if ( state === STATE.PAN ) {
+
+			if ( scope.noPan === true ) return;
+
+			panEnd.set( event.clientX, event.clientY );
+			panDelta.subVectors( panEnd, panStart );
+
+			scope.pan( panDelta.x, panDelta.y );
+
+			panStart.copy( panEnd );
+
+		}
+
+		scope.update();
+
+	}
+
+	function onMouseUp( /* event */ ) {
+
+		if ( scope.enabled === false ) return;
+
+		scope.domElement.removeEventListener( 'mousemove', onMouseMove, false );
+		scope.domElement.removeEventListener( 'mouseup', onMouseUp, false );
+		scope.dispatchEvent( endEvent );
+		state = STATE.NONE;
+
+	}
+
+	function onMouseWheel( event ) {
+
+		if ( scope.enabled === false || scope.noZoom === true ) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+
+		var delta = 0;
+
+		if ( event.wheelDelta !== undefined ) { // WebKit / Opera / Explorer 9
+
+			delta = event.wheelDelta;
+
+		} else if ( event.detail !== undefined ) { // Firefox
+
+			delta = - event.detail;
+
+		}
+
+		if ( delta > 0 ) {
+
+			scope.dollyOut();
+
+		} else {
+
+			scope.dollyIn();
+
+		}
+
+		scope.update();
+		scope.dispatchEvent( startEvent );
+		scope.dispatchEvent( endEvent );
+
+	}
+
+	function onKeyDown( event ) {
+
+		if ( scope.enabled === false || scope.noKeys === true || scope.noPan === true ) return;
+
+		switch ( event.keyCode ) {
+
+			case scope.keys.UP:
+				scope.pan( 0, scope.keyPanSpeed );
+				scope.update();
+				break;
+
+			case scope.keys.BOTTOM:
+				scope.pan( 0, - scope.keyPanSpeed );
+				scope.update();
+				break;
+
+			case scope.keys.LEFT:
+				scope.pan( scope.keyPanSpeed, 0 );
+				scope.update();
+				break;
+
+			case scope.keys.RIGHT:
+				scope.pan( - scope.keyPanSpeed, 0 );
+				scope.update();
+				break;
+
+		}
+
+	}
+
+	function touchstart( event ) {
+
+		if ( scope.enabled === false ) return;
+
+		switch ( event.touches.length ) {
+
+			case 1:	// one-fingered touch: rotate
+
+				if ( scope.noRotate === true ) return;
+
+				state = STATE.TOUCH_ROTATE;
+
+				rotateStart.set( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY );
+				break;
+
+			case 2:	// two-fingered touch: dolly
+
+				if ( scope.noZoom === true ) return;
+
+				state = STATE.TOUCH_DOLLY;
+
+				var dx = event.touches[ 0 ].pageX - event.touches[ 1 ].pageX;
+				var dy = event.touches[ 0 ].pageY - event.touches[ 1 ].pageY;
+				var distance = Math.sqrt( dx * dx + dy * dy );
+				dollyStart.set( 0, distance );
+				break;
+
+			case 3: // three-fingered touch: pan
+
+				if ( scope.noPan === true ) return;
+
+				state = STATE.TOUCH_PAN;
+
+				panStart.set( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY );
+				break;
+
+			default:
+
+				state = STATE.NONE;
+
+		}
+
+		scope.dispatchEvent( startEvent );
+
+	}
+
+	function touchmove( event ) {
+
+		if ( scope.enabled === false ) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+
+		var element = scope.domElement === document ? scope.domElement.body : scope.domElement;
+
+		switch ( event.touches.length ) {
+
+			case 1: // one-fingered touch: rotate
+
+				if ( scope.noRotate === true ) return;
+				if ( state !== STATE.TOUCH_ROTATE ) return;
+
+				rotateEnd.set( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY );
+				rotateDelta.subVectors( rotateEnd, rotateStart );
+
+				// rotating across whole screen goes 360 degrees around
+				scope.rotateLeft( 2 * Math.PI * rotateDelta.x / element.clientWidth * scope.rotateSpeed );
+				// rotating up and down along whole screen attempts to go 360, but limited to 180
+				scope.rotateUp( 2 * Math.PI * rotateDelta.y / element.clientHeight * scope.rotateSpeed );
+
+				rotateStart.copy( rotateEnd );
+
+				scope.update();
+				break;
+
+			case 2: // two-fingered touch: dolly
+
+				if ( scope.noZoom === true ) return;
+				if ( state !== STATE.TOUCH_DOLLY ) return;
+
+				var dx = event.touches[ 0 ].pageX - event.touches[ 1 ].pageX;
+				var dy = event.touches[ 0 ].pageY - event.touches[ 1 ].pageY;
+				var distance = Math.sqrt( dx * dx + dy * dy );
+
+				dollyEnd.set( 0, distance );
+				dollyDelta.subVectors( dollyEnd, dollyStart );
+
+				if ( dollyDelta.y > 0 ) {
+
+					scope.dollyOut();
+
+				} else {
+
+					scope.dollyIn();
+
+				}
+
+				dollyStart.copy( dollyEnd );
+
+				scope.update();
+				break;
+
+			case 3: // three-fingered touch: pan
+
+				if ( scope.noPan === true ) return;
+				if ( state !== STATE.TOUCH_PAN ) return;
+
+				panEnd.set( event.touches[ 0 ].pageX, event.touches[ 0 ].pageY );
+				panDelta.subVectors( panEnd, panStart );
+
+				scope.pan( panDelta.x, panDelta.y );
+
+				panStart.copy( panEnd );
+
+				scope.update();
+				break;
+
+			default:
+
+				state = STATE.NONE;
+
+		}
+
+	}
+
+	function touchend( /* event */ ) {
+
+		if ( scope.enabled === false ) return;
+
+		scope.dispatchEvent( endEvent );
+		state = STATE.NONE;
+
+	}
+
+	this.domElement.addEventListener( 'contextmenu', function ( event ) { event.preventDefault(); }, false );
+	this.domElement.addEventListener( 'mousedown', onMouseDown, false );
+	this.domElement.addEventListener( 'mousewheel', onMouseWheel, false );
+	this.domElement.addEventListener( 'DOMMouseScroll', onMouseWheel, false ); // firefox
+
+	this.domElement.addEventListener( 'touchstart', touchstart, false );
+	this.domElement.addEventListener( 'touchend', touchend, false );
+	this.domElement.addEventListener( 'touchmove', touchmove, false );
+
+	window.addEventListener( 'keydown', onKeyDown, false );
+
+	// force an update at start
+	this.update();
+
+};
+
+THREE.OrbitControls.prototype = Object.create( THREE.EventDispatcher.prototype );
