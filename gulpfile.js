@@ -48,7 +48,6 @@ gulp.task('watch', function() {
   gulp.watch('src/css/*.styl', ['styles']);
   gulp.watch('src/js/main.js', ['scripts']);
   gulp.watch('src/js/lib/*.js', ['jslib']);
-/*   gulp.watch('src/images/*', ['images']); */
 
 });
 

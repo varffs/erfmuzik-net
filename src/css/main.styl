@@ -47,6 +47,42 @@ table {
 	border-spacing: 0;
 }
 
+.fulljustify
+	text-align: justify
+
+.fulljustify:after
+	content: ""
+	display: inline-block
+	width: 100%
+
+a
+	color: inherit
+
+a:hover
+	text-decoration: none
+
+html
+	font-family: sans-serif
+	font-weight: bold
+	font-size: 17px
+	letter-spacing: .2em
+	text-align: center
+
 canvas
 	width: 100%
 	height: 100%
+
+header#top, footer#bottom
+	position: fixed
+	left: 20px
+	right: 20px
+	box-sizing: border-box
+	padding: 10px
+	z-index: 9999
+	background: rgba(255,255,255,.65)
+
+header#top
+	top: 20px
+
+footer#bottom
+	bottom: 20px

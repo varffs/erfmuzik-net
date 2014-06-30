@@ -14,7 +14,8 @@ var audioContext;
 var processor;
 var analyser;
 
-var sampleAudioURL = "dist/assets/mp3/Lo2tha.mp3";
+/* var sampleAudioURL = "dist/assets/mp3/Lo2tha.mp3"; */
+var sampleAudioURL = "dist/assets/mp3/ERFMUZIK-VOL1-SOUNDSCAPE.mp3";
 
 var isPlayingAudio = false;
 
@@ -248,9 +249,6 @@ function playAudio() {
             return;
         }
 
-/* 		processor = audioContext.createJavaScriptNode(2048 , 1 , 1 ); */
-		processor = audioContext.createScriptProcessor(2048 , 1 , 1 );
-
 		analyser = audioContext.createAnalyser();
 		analyser.smoothingTimeConstant = 0.8; //0<->1. 0 is no time smoothing
 		analyser.fftSize = 1024;
@@ -276,12 +274,25 @@ function playAudio() {
 		request.open("GET", sampleAudioURL, true);
 		request.responseType = "arraybuffer";
 
-		request.onload = function() {
+		/*
+request.onload = function() {
 			audioBuffer = audioContext.createBuffer(request.response, false );
 			source.buffer = audioBuffer;
 			source.loop = true;
 			source.noteOn(0.0);
 			isPlayingAudio = true;
+		};
+*/
+
+		request.onload = function() {
+			audioContext.decodeAudioData(request.response, function(buffer) {
+		      source.buffer = buffer;
+			  source.loop = true;
+			  source.start(0);
+			  isPlayingAudio = true;
+		    }, function(e) {
+			    console.log(e);
+		    });
 		};
 
 		request.send();
@@ -341,8 +352,7 @@ function setup3d() {
 	renderer = new THREE.WebGLRenderer({antialias: true});
 	renderer.shadowMapEnabled = true;
 	renderer.setSize( window.innerWidth, window.innerHeight );
-/* 	renderer.setClearColor('#d2d2d2'); */
-	renderer.setClearColor('#000');
+	renderer.setClearColor('#CCCCCC');
 
 	controls = new THREE.OrbitControls(camera, renderer.domElement);
 
@@ -400,57 +410,59 @@ function setup3d() {
 	scene.add(fog);
 */
 
-	camera.position.z = 7;
+	camera.position.z = 8;
 
 }
 
 function render() {
 
-	if (frames < limitFrames) {
+	requestAnimationFrame(render);
+	renderer.render(scene, camera);
 
-		requestAnimationFrame(render);
-		renderer.render(scene, camera);
+	if (isPlayingAudio) {
 
-		if (isPlayingAudio) {
+		analysis();
 
-			analysis();
+		var shiftx = waveData[getRandomInt (50, 60)]/6;
+		var shifty = waveData[getRandomInt (410, 470)]/6;
 
-			var shiftx = waveData[getRandomInt (50, 60)]/5;
-			var shifty = waveData[getRandomInt (430, 460)]/5;
+		var zoom = waveData[getRandomInt (150, 250)]/15;
 
-			if (mesh) {
+		if (mesh) {
 
+			if (shiftx > 0.005) {
 				mesh.rotation.x += shiftx;
+			} else {
+				mesh.rotation.x += 0.005;
+			}
+
+			if (shifty > 0.005) {
 				mesh.rotation.y += shifty;
-
+			} else {
+				mesh.rotation.y += 0.005;
 			}
 
-		} else {
-
-			if (mesh) {
-
-				mesh.rotation.x += 0.01;
-				mesh.rotation.y += 0.01;
-
+			if ( camera.position.z < 3.6) {
+				camera.position.z = (camera.position.z*(zoom+1.75));
 			}
+
+			camera.position.z = (camera.position.z*(zoom+1));
 
 		}
 
-		frames++;
+	} else {
+
+		if (mesh) {
+
+			mesh.rotation.x += 0.005;
+			mesh.rotation.y += 0.005;
+
+		}
 
 	}
 }
 
 
-/* playAudio(); */
+playAudio();
 setup3d();
 render();
-
-/*
-$(window).on({
-	'mousewheel': function(e) {
-		camera.position.z += e.originalEvent.wheelDeltaY/100;
-	}
-});
-*/
-
