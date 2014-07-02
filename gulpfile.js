@@ -10,6 +10,25 @@ var gulp = require('gulp'),
     concat = require('gulp-concat'),
     notify = require('gulp-notify'),
     cache = require('gulp-cache'),
+    connect = require('gulp-connect'),
+
+/* SERVER */
+
+gulp.task('connect', function() {
+  connect.server({
+    root: './',
+    port: 8008,
+    livereload: true
+  });
+});
+
+gulp.task('html', function () {
+  gulp.src('./*.html')
+    .pipe(connect.reload())
+    .pipe(notify({ message: 'HTML task complete' }));
+});
+
+/* STYLES */
 
 gulp.task('styles', function() {
   return gulp.src('src/css/main.styl')
@@ -19,8 +38,11 @@ gulp.task('styles', function() {
     .pipe(rename({suffix: '.min'}))
     .pipe(minifycss())
     .pipe(gulp.dest('dist/assets/css'))
+    .pipe(connect.reload())
     .pipe(notify({ message: 'Styles task complete' }));
 });
+
+/* JS */
 
 gulp.task('jslib', function() {
   return gulp.src('src/js/lib/*.js')
@@ -29,6 +51,7 @@ gulp.task('jslib', function() {
     .pipe(rename({suffix: '.min'}))
     .pipe(uglify())
     .pipe(gulp.dest('dist/assets/js'))
+    .pipe(connect.reload())
     .pipe(notify({ message: 'Lib task complete' }));
 });
 
@@ -40,19 +63,19 @@ gulp.task('scripts', function() {
     .pipe(rename({suffix: '.min'}))
     .pipe(uglify())
     .pipe(gulp.dest('dist/assets/js'))
+    .pipe(connect.reload())
     .pipe(notify({ message: 'Scripts task complete' }));
 });
+
+/* WATCH */
 
 gulp.task('watch', function() {
 
   gulp.watch('src/css/*.styl', ['styles']);
   gulp.watch('src/js/main.js', ['scripts']);
   gulp.watch('src/js/lib/*.js', ['jslib']);
+  gulp.watch(['./build/*.html'], ['html']);
 
 });
 
-gulp.task('default', function() {
-
-	gulp.start('styles', 'scripts', 'jslib');
-
-});
+gulp.task('default', ['connect', 'watch']);

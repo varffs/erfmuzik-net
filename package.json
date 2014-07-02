@@ -18,7 +18,8 @@
     "gulp-autoprefixer": "0.0.7",
     "gulp-jshint": "~1.5.5",
     "gulp-cache": "~0.1.9",
-    "gulp-imagemin": "~0.5.0"
+    "gulp-imagemin": "~0.5.0",
+    "gulp-connect": "^2.0.5"
   },
   "license": "GPL2"
 }
