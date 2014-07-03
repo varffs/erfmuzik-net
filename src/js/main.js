@@ -103,9 +103,6 @@ function setup3d() {
 /* 	renderer.setClearColor('#CCCCCC'); */
 	renderer.setClearColor( 0x000000, 0 );
 
-
-	controls = new THREE.OrbitControls(camera, renderer.domElement);
-
 	window.addEventListener('resize', function() {
 		var WIDTH = window.innerWidth,
             HEIGHT = window.innerHeight;
