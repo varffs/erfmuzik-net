@@ -27,6 +27,7 @@ var renderer;
 var mesh;
 
 // loader variables
+var loaderDiv = $('#loader');
 var opacity = 0.99;
 
 var audio = {
@@ -53,7 +54,7 @@ var audio = {
 
 		request.onreadystatechange = function() {
 			if (request.readyState == 2) {
-				loader.big();
+				loader.small();
 			} else if (request.readyState == 3) {
 				loader.small();
 			} else if (request.readyState == 4) {
@@ -133,7 +134,7 @@ var threed = {
 		var xhr = new XMLHttpRequest();
 		xhr.onreadystatechange = function() {
 			if (xhr.readyState == 2) {
-				loader.big();
+				loader.small();
 			} else if (xhr.readyState == 4) {
 				loader.big();
 				if (xhr.status == 200 || xhr.status === 0) {
@@ -206,18 +207,18 @@ var threed = {
 
 var loader = {
 	init: function() {
-		$('#loader').show();
+		loaderDiv.show();
 	},
 	big: function() {
-		opacity = opacity-0.1;
-		$('#loader').css('background-color', 'rgba(0, 0, 0, ' + opacity + ')');
+		opacity = opacity-0.07;
+		loaderDiv.css('background-color', 'rgba(0, 0, 0, ' + opacity + ')');
 	},
 	small: function() {
-		opacity = opacity-0.01;
-		$('#loader').css('background-color', 'rgba(0, 0, 0, ' + opacity + ')');
+		opacity = opacity-0.002;
+		loaderDiv.css('background-color', 'rgba(0, 0, 0, ' + opacity + ')');
 	},
 	finished: function() {
-		$('#loader').css('background-color', 'rgba(0, 0, 0, .1)').fadeOut(300);
+		loaderDiv.css('background-color', 'rgba(0, 0, 0, .1)').fadeOut(300);
 	}
 }
 
