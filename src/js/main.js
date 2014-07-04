@@ -65,15 +65,27 @@ function playAudio() {
 
 		// Load asynchronously
 		var request = new XMLHttpRequest();
-		request.open("GET", sampleAudioURL, true);
-		request.responseType = "arraybuffer";
+		request.open('GET', sampleAudioURL, true);
+		request.responseType = 'arraybuffer';
+
+		request.onreadystatechange = function() {
+			if (request.readyState == 2) {
+				loader.progress(75);
+			} else if (request.readyState == 4) {
+				loader.progress(65);
+			}
+			console.log(request.readyState);
+		};
 
 		request.onload = function() {
 			audioContext.decodeAudioData(request.response, function(buffer) {
+
 		      source.buffer = buffer;
 /* 			  source.loop = true; */
 			  source.start(0);
 			  isPlayingAudio = true;
+			  loader.finished();
+
 		    }, function(e) {
 			    console.log(e);
 		    });
@@ -136,21 +148,25 @@ function setup3d() {
 
 	var xhr = new XMLHttpRequest();
     xhr.onreadystatechange = function () {
-	if ( xhr.readyState == 4 ) {
-		if ( xhr.status == 200 || xhr.status == 0 ) {
-			var rep = xhr.response; // || xhr.mozResponseArrayBuffer;
-				parseStlBinary(rep);
-				mesh.rotation.x = 5;
-                mesh.rotation.z = .25;
+    	if ( xhr.readyState == 2) {
+			loader.progress(85);
+    	} else if ( xhr.readyState == 4 ) {
+    		loader.progress(80);
+			if ( xhr.status == 200 || xhr.status == 0 ) {
+				var rep = xhr.response; // || xhr.mozResponseArrayBuffer;
+					parseStlBinary(rep);
+					mesh.rotation.x = 5;
+	                mesh.rotation.z = .25;
 			}
 		}
     }
     xhr.onerror = function(e) {
 		console.log(e);
 	}
-	xhr.open( "GET", 'dist/assets/3d/girder-cube.stl', true );
-	xhr.responseType = "arraybuffer";
-    xhr.send( null );
+	xhr.open( 'GET', 'dist/assets/3d/girder-cube.stl', true );
+	xhr.responseType = 'arraybuffer';
+/*     xhr.send( null ); */
+    xhr.send();
 
     render();
 
@@ -204,13 +220,30 @@ function render() {
 	}
 }
 
+var loader = {
+	init: function() {
+		$('#loader').show();
+	},
+	progress: function(value) {
+		$('#loader').css('background-color', 'rgba(0, 0, 0, .'+value+')');
+	},
+	finished: function() {
+		$('#loader').fadeOut(300);
+	}
+}
+
 if (Detector.webgl) {
+
+	loader.init();
+
 	if ('AudioContext' in window) {
 		playAudio();
 	} else {
 		$('.nosupportalert').show();
 	}
+
 	setup3d();
+
 } else {
 	$('html').css('background-image', 'url(dist/assets/img/background.png)');
 	$('.nosupportalert').show();
