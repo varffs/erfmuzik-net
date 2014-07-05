@@ -84,7 +84,7 @@ var audio = {
 			waveData[i] = ((timeByteData[i] - 128) / 128) * volSens;
 		}
 	}
-}
+};
 
 var threed = {
 	init: function() {
@@ -115,12 +115,9 @@ var threed = {
 
 		var spotlight = new THREE.SpotLight(0xffffff);
 		spotlight.position.set(1000, 100, 100);
-
 		spotlight.castShadow = true;
-
 		spotlight.shadowMapWidth = 1024;
 		spotlight.shadowMapHeight = 1024;
-
 		spotlight.shadowCameraNear = 500;
 		spotlight.shadowCameraFar = 4000;
 		spotlight.shadowCameraFov = 30;
@@ -203,28 +200,26 @@ var threed = {
 
 		}
 	}
-}
+};
 
 var loader = {
-	init: function() {
-		loaderDiv.show();
-	},
 	big: function() {
 		opacity = opacity-0.07;
 		loaderDiv.css('background-color', 'rgba(0, 0, 0, ' + opacity + ')');
 	},
 	small: function() {
-		opacity = opacity-0.002;
+		opacity = opacity-0.001;
 		loaderDiv.css('background-color', 'rgba(0, 0, 0, ' + opacity + ')');
 	},
 	finished: function() {
-		loaderDiv.css('background-color', 'rgba(0, 0, 0, .1)').fadeOut(300);
+		loaderDiv.css('background-color', 'rgba(0, 0, 0, .1)').fadeOut(700);
+	},
+	remove: function() {
+		loaderDiv.remove();
 	}
-}
+};
 
 if (Detector.webgl) {
-
-	loader.init();
 
 	if ('AudioContext' in window) {
 		audio.init();
@@ -235,6 +230,7 @@ if (Detector.webgl) {
 	threed.init();
 
 } else {
+	loader.remove();
 	$('html').css('background-image', 'url(dist/assets/img/background.png)');
 	$('.nosupportalert').show();
 }
