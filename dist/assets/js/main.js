@@ -204,7 +204,7 @@ var threed = {
 
 var loader = {
 	big: function() {
-		opacity = opacity-0.07;
+		opacity = opacity-0.1;
 		loaderDiv.css('background-color', 'rgba(0, 0, 0, ' + opacity + ')');
 	},
 	small: function() {
@@ -212,7 +212,9 @@ var loader = {
 		loaderDiv.css('background-color', 'rgba(0, 0, 0, ' + opacity + ')');
 	},
 	finished: function() {
-		loaderDiv.css('background-color', 'rgba(0, 0, 0, .1)').fadeOut(700);
+		loaderDiv.css('background-color', 'rgba(0, 0, 0, .1)').fadeOut(700, function() {
+			loader.remove();
+		});
 	},
 	remove: function() {
 		loaderDiv.remove();
