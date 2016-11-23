@@ -1,21 +1,21 @@
 {
   "latest": {
     "type": "mixes",
-    "number": "ERFMIX001"
+    "code": "ERFMIX001"
   },
   "releases": [
     {
-      "number": "ERF001",
+      "code": "ERF001",
       "release": "Erfmuzik Vol 1: Glass Up Against That Steel",
       "artist": "Traxmatik",
-      "img": "releases/erf001/img/background.png"
+      "img": "releases/erf001/dist/assets/img/erfmuzikvol1-screen-final-cover-900.png"
     }
   ],
   "mixes": [
     {
-      "number": "ERFMIX001",
+      "code": "ERFMIX001",
       "artist": "Traxmatik",
-      "img": "mixes/erfmix001/img/dist/erfmix001-artwork.png"
+      "img": "mixes/erfmix001/img/dist/erfmix001-artwork.jpg"
     }
   ]
 }
